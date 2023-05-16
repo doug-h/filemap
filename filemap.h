@@ -1,10 +1,13 @@
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <filesystem>
 #include <future>
 #include <iostream>
 #include <list>
+#include <numeric>
 #include <queue>
+#include <ranges>
 #include <stack>
 #include <thread>
 #include <vector>
@@ -18,7 +21,6 @@
 
 namespace fs = std::filesystem;
 
-inline float lerp(float a, float b, float t) { return (1 - t) * a + t * b; }
 
 struct FormatSize {
   std::uintmax_t s;
@@ -163,6 +165,26 @@ FileCountInfo CountFiles(Directory *root)
   return fc;
 }
 
+
+float GetWorstAspect(const std::vector<uintmax_t> &sizes, int w, int h,
+                     uintmax_t parent_size)
+{
+  if (sizes.size() == 0) { return std::numeric_limits<float>::max(); }
+
+  int a = (w > h) ? w : h;
+  int b = (w > h) ? h : w;
+
+  uintmax_t min_size = *std::ranges::min_element(sizes);
+  uintmax_t max_size = *std::ranges::max_element(sizes);
+  uintmax_t sum_size = std::accumulate(sizes.begin(), sizes.end(), 0);
+
+  // TODO - avoid problems with large numbers
+  float t = (float)(a * sum_size * sum_size) / (b * parent_size);
+
+  return std::max(t / min_size, max_size / t);
+}
+
+
 // Spilts up the rect in root
 void CreateRects(Directory *root)
 {
@@ -178,42 +200,62 @@ void CreateRects(Directory *root)
     }
     float split = 1.0f / d->size;
 
+    // The total space, minus all locked-in rows
     SDL_FRect remaining_space = {(float)d->AABB.x, (float)d->AABB.y,
                                  (float)d->AABB.w, (float)d->AABB.h};
-    bool flipped = d->AABB.h > d->AABB.w;
+
+    std::vector<Directory *> row;
+    std::vector<uintmax_t> row_sizes;
+
     for (Directory *c : d->children) {
-      c->AABB.x = remaining_space.x;
-      c->AABB.y = remaining_space.y;
-      float frac = c->size * split;
-      if (flipped) {
-        c->AABB.h = d->AABB.h * frac;
-        c->AABB.w = remaining_space.w;
-        remaining_space.y += d->AABB.h * frac;
-        remaining_space.h -= d->AABB.h * frac;
+      bool portrait = remaining_space.h > remaining_space.w;
+
+      // Would adding more to this row make it better?
+      float current_aspect = GetWorstAspect(row_sizes, remaining_space.w,
+                                            remaining_space.h, d->size);
+      row_sizes.push_back(c->size);
+      float add_aspect = GetWorstAspect(row_sizes, remaining_space.w,
+                                        remaining_space.h, d->size);
+
+      assert(current_aspect >= 1);
+      assert(add_aspect >= 1);
+
+      if (add_aspect <= current_aspect) {
+        // Keep going
+        row.push_back(c);
       } else {
-        c->AABB.w = d->AABB.w * frac;
-        c->AABB.h = remaining_space.h;
-        remaining_space.x += d->AABB.w * frac;
-        remaining_space.w -= d->AABB.w * frac;
+        // Row is done, start another and update
+        uintmax_t row_size =
+            std::accumulate(row_sizes.begin(), row_sizes.end(), 0);
+
+        for (Directory *rc : row) {
+          rc->AABB.x = remaining_space.x;
+          rc->AABB.y = remaining_space.y;
+
+          if (portrait) {
+            rc->AABB.h = d->AABB.h * row_size * split;
+            rc->AABB.w = remaining_space.w * rc->size / row_size;
+            remaining_space.y += d->AABB.h * row_size * split;
+          } else {
+            rc->AABB.w = d->AABB.w * row_size * split;
+            rc->AABB.h = remaining_space.h * rc->size / row_size;
+            remaining_space.x += d->AABB.w * row_size * split;
+          }
+        }
+        if (portrait) {
+          remaining_space.y = row.at(0)->AABB.y;
+          remaining_space.h -= d->AABB.h * row_size * split;
+        } else {
+          remaining_space.x -= row.size() * d->AABB.w * row_size * split;
+          remaining_space.w -= d->AABB.w * row_size * split;
+        }
+
+        row = {c};
+        row_sizes = {c->size};
       }
 
+
       dq.push(c);
-    }
-    for (File &f : d->files) {
-      f.AABB.x = remaining_space.x;
-      f.AABB.y = remaining_space.y;
-      float frac = f.size * split;
-      if (flipped) {
-        f.AABB.h = d->AABB.h * frac;
-        f.AABB.w = remaining_space.w;
-        remaining_space.y += d->AABB.h * frac;
-        remaining_space.h -= d->AABB.h * frac;
-      } else {
-        f.AABB.w = d->AABB.w * frac;
-        f.AABB.h = remaining_space.h;
-        remaining_space.x += d->AABB.w * frac;
-        remaining_space.w -= d->AABB.w * frac;
-      }
     }
   }
 }
