@@ -1,370 +1,213 @@
-#include <algorithm>
-#include <cassert>
-#include <cmath>
-#include <filesystem>
-#include <future>
-#include <iostream>
-#include <list>
-#include <numeric>
-#include <queue>
-#include <ranges>
-#include <stack>
-#include <thread>
-#include <vector>
+#pragma once
+
+#include "debug.h"
+#include "filetree.h"
 
 #include "SDL.h"
 
-// TODO - SWITCH multithreading based on HDD vs SSD, cores etc
-// TODO - directory finite size based on filesystem
+#include <cstdint>
 
-#define DIR_SIZE 4096
+// Take a FileTree and turn it into SDL_Rects for displaying
 
-namespace fs = std::filesystem;
+// A lot of this could be re-done more simply using relative sizes
 
+struct Row {
+  uintmax_t min_size;
+  uintmax_t max_size;
+  uintmax_t total_size = 0;
 
-struct FormatSize {
-  std::uintmax_t s;
+  std::vector<uintmax_t> m_elements;
 
-  friend std::ostream &operator<<(std::ostream &os, FormatSize f)
+  void Clear()
   {
-    int unit = 0;
-    float head = f.s;
-    while (head >= 1024) {
-      ++unit;
-      head /= 1024;
+    total_size = 0;
+    m_elements.clear();
+  }
+
+  void Add(uintmax_t size)
+  {
+    if (size > 0) {
+      if (total_size == 0) {
+        min_size = max_size = total_size = size;
+      } else {
+        min_size = std::min(size, min_size);
+        max_size = std::max(size, max_size);
+        total_size += size;
+      }
     }
-    head = std::ceil(head * 10.0f) / 10.0f;
-    os << head;
-
-    if (unit) { os << "KMGTPE"[unit - 1] << 'i'; }
-
-    return os << 'B';
+    m_elements.push_back(size);
   }
 };
 
-std::uintmax_t decend(fs::path start)
-{
-  std::uintmax_t size = 0;
-  for (const fs::directory_entry &dir_entry :
-       fs::recursive_directory_iterator(start)) {
-    if (dir_entry.is_regular_file()) { size += dir_entry.file_size(); }
-  }
-
-  return size;
-}
-
-template <typename F> class debug_task_wrapper {
-  F f;
-
-  // For debug
-  std::chrono::time_point<std::chrono::high_resolution_clock> start;
-  std::chrono::time_point<std::chrono::high_resolution_clock> end;
-
-public:
-  debug_task_wrapper(F f) : f(f)
-  {
-    start = std::chrono::high_resolution_clock::now();
-  }
-  ~debug_task_wrapper()
-  {
-    end = std::chrono::high_resolution_clock::now();
-    std::cout << "Task took "
-              << (std::chrono::duration_cast<std::chrono::microseconds>(end -
-                                                                        start)
-                      .count() *
-                  1e-6)
-              << "s." << '\n';
-  }
-
-  using return_type = typename decltype(std::function{f})::result_type;
-  template <typename... Args> return_type operator()(Args... args)
-  {
-    std::cout << "Starting thread with " << (args << ...) << '\n';
-    return f(args...);
-  };
-};
-
-
-struct File {
-  std::string name;
+struct Rect : SDL_FRect {
   uintmax_t size;
-  SDL_Rect AABB;
-};
-struct Directory {
-  fs::path path;
-  uintmax_t size;
-  SDL_Rect AABB;
-  std::vector<File> files;
-  std::vector<Directory *> children;
-  Directory *parent;
 };
 
-void FillDirectory(Directory *dir)
+// The most 'squished' file rect possible if 'row' is placed in a 'space'
+inline float GetWorstAspectRatio(const Row &row, const Rect &space)
 {
-  for (const fs::directory_entry &dir_entry :
-       fs::directory_iterator(dir->path)) {
-    if (dir_entry.is_regular_file()) {
-      File f;
-      f.size = dir_entry.file_size();
-      f.name = dir_entry.path().filename();
-
-      dir->files.push_back(f);
-
-    } else if (dir_entry.is_directory() and !dir_entry.is_symlink()) {
-      Directory *child = new Directory();
-      child->path = dir_entry.path();
-      child->parent = dir;
-      dir->children.push_back(child);
-    }
-  }
-}
-
-void FillDirectoryRecursive(Directory *dir)
-{
-  FillDirectory(dir);
-  for (Directory *c : dir->children) {
-    FillDirectoryRecursive(c);
-  }
-}
-
-void CalcSizes(Directory *root)
-{
-  root->size = DIR_SIZE;
-  for (const auto &f : root->files) {
-    root->size += f.size;
-  }
-  for (auto c : root->children) {
-    CalcSizes(c);
-    root->size += c->size;
-  }
-}
-
-struct FileCountInfo {
-  unsigned int n_files;
-  unsigned int n_folders;
-};
-
-FileCountInfo CountFiles(Directory *root)
-{
-  FileCountInfo fc;
-  fc.n_files = 0;
-  fc.n_folders = 1;
-
-  std::stack<Directory *> dq;
-  dq.push(root);
-  while (!dq.empty()) {
-    Directory *d = dq.top();
-    dq.pop();
-
-    fc.n_files += d->files.size();
-    for (const auto c : d->children) {
-      ++fc.n_folders;
-      dq.push(c);
-    }
-  }
-  return fc;
-}
-
-
-float GetWorstAspect(const std::vector<uintmax_t> &sizes, int w, int h,
-                     uintmax_t parent_size)
-{
-  if (sizes.size() == 0) { return std::numeric_limits<float>::max(); }
-
-  int a = (w > h) ? w : h;
-  int b = (w > h) ? h : w;
-
-  uintmax_t min_size = *std::ranges::min_element(sizes);
-  uintmax_t max_size = *std::ranges::max_element(sizes);
-  uintmax_t sum_size = std::accumulate(sizes.begin(), sizes.end(), 0);
+  float a = (space.w > space.h) ? space.w : space.h;
+  float b = (space.w > space.h) ? space.h : space.w;
 
   // TODO - avoid problems with large numbers
-  float t = (float)(a * sum_size * sum_size) / (b * parent_size);
-
-  return std::max(t / min_size, max_size / t);
+  float t = (float)(a * (float)row.total_size * (float)row.total_size) /
+            (b * (float)space.size);
+  return std::max(t / (float)row.min_size, (float)row.max_size / t);
 }
 
-
-// Spilts up the rect in root
-void CreateRects(Directory *root)
+// We have an unfinished row in a total space of total_size, does adding
+// next_size to the row make the aspect ratio better than starting a new row
+inline bool AddingReducesAspect(const Row &row, const Rect &space,
+                                uintmax_t next_size)
 {
-  std::stack<Directory *> dq;
-  dq.push(root);
-  while (!dq.empty()) {
-    Directory *d = dq.top();
-    dq.pop();
+  if (space.size == 0 or row.total_size == 0) { return true; }
 
+  Row after = row;
+  after.Add(next_size);
+  return GetWorstAspectRatio(after, space) <= GetWorstAspectRatio(row, space);
+}
 
-    if (d->size == 0) {
-      assert(d->children.size() == 0 and d->files.size() == 0);
+// This class converts file sizes to rects and places them aesthetically
+class RowLayoutManager {
+public:
+  // _parent_rect represents a directory of _parent_size
+  RowLayoutManager(SDL_FRect _parent_rect, uintmax_t _parent_size,
+                   std::vector<SDL_FRect> &out)
+      : m_parent_rect{_parent_rect, _parent_size},
+        m_remaining_rect(m_parent_rect), m_current_row(), m_out_rects(out)
+  {}
+
+  ~RowLayoutManager()
+  {
+    if (m_current_row.total_size != 0) { FinishRow(); }
+  }
+
+  void Add(uintmax_t size)
+  {
+    if (m_parent_rect.w < 1 or m_parent_rect.h < 1) {
+      m_out_rects.push_back({0, 0, 0, 0});
+      return;
     }
-    float split = 1.0f / d->size;
+    if (!AddingReducesAspect(m_current_row, m_remaining_rect, size)) {
+      FinishRow();
+    }
 
-    // The total space, minus all locked-in rows
-    SDL_FRect remaining_space = {(float)d->AABB.x, (float)d->AABB.y,
-                                 (float)d->AABB.w, (float)d->AABB.h};
+    m_current_row.Add(size);
+  }
 
-    std::vector<Directory *> row;
-    std::vector<uintmax_t> row_sizes;
+private:
+  void FinishRow()
+  {
+    if (m_current_row.total_size == 0) { return; }
+    // End the temp row and place it.
 
-    for (Directory *c : d->children) {
-      bool portrait = remaining_space.h > remaining_space.w;
+    // If total_space is landscape (wider than tall) row takes a
+    // horizontal split and stacks its contents vertically.
+    // If total_space is portrait (taller than wide) row takes a vertical
+    // split and stacks its contents horizontally.
 
-      // Would adding more to this row make it better?
-      float current_aspect = GetWorstAspect(row_sizes, remaining_space.w,
-                                            remaining_space.h, d->size);
-      row_sizes.push_back(c->size);
-      float add_aspect = GetWorstAspect(row_sizes, remaining_space.w,
-                                        remaining_space.h, d->size);
+    bool portrait = m_remaining_rect.h > m_remaining_rect.w;
+    SDL_FRect row_space = m_remaining_rect;
 
-      assert(current_aspect >= 1);
-      assert(add_aspect >= 1);
 
-      if (add_aspect <= current_aspect) {
-        // Keep going
-        row.push_back(c);
-      } else {
-        // Row is done, start another and update
-        uintmax_t row_size =
-            std::accumulate(row_sizes.begin(), row_sizes.end(), 0);
+    if (portrait) {
+      float y_split = m_remaining_rect.h * (float)m_current_row.total_size /
+                      (float)m_remaining_rect.size;
+      row_space.h = y_split;
+      m_remaining_rect.y += y_split;
+      m_remaining_rect.h -= y_split;
+      m_remaining_rect.size -= m_current_row.total_size;
 
-        for (Directory *rc : row) {
-          rc->AABB.x = remaining_space.x;
-          rc->AABB.y = remaining_space.y;
-
-          if (portrait) {
-            rc->AABB.h = d->AABB.h * row_size * split;
-            rc->AABB.w = remaining_space.w * rc->size / row_size;
-            remaining_space.y += d->AABB.h * row_size * split;
-          } else {
-            rc->AABB.w = d->AABB.w * row_size * split;
-            rc->AABB.h = remaining_space.h * rc->size / row_size;
-            remaining_space.x += d->AABB.w * row_size * split;
-          }
+      for (uintmax_t size : m_current_row.m_elements) {
+        if (size == 0) {
+          m_out_rects.push_back({0, 0, 0, 0});
+          continue;
         }
-        if (portrait) {
-          remaining_space.y = row.at(0)->AABB.y;
-          remaining_space.h -= d->AABB.h * row_size * split;
-        } else {
-          remaining_space.x -= row.size() * d->AABB.w * row_size * split;
-          remaining_space.w -= d->AABB.w * row_size * split;
+
+        SDL_FRect ele_rect = row_space;
+        ele_rect.w *= (float)size / (float)m_current_row.total_size;
+        m_out_rects.push_back(ele_rect);
+
+        // If density is changing drastically we have a problem
+        float d = (ele_rect.w * ele_rect.h) / (float)size;
+
+        float p =
+            (m_parent_rect.w * m_parent_rect.h) / (float)m_parent_rect.size;
+        assert(0.8f * p < d and d < 1.2f * p);
+
+        row_space.x += ele_rect.w;
+        row_space.w -= ele_rect.w;
+        m_current_row.total_size -= size;
+      }
+
+    } else {
+      float x_split = m_remaining_rect.w * (float)m_current_row.total_size /
+                      (float)m_remaining_rect.size;
+      row_space.w = x_split;
+      m_remaining_rect.x += x_split;
+      m_remaining_rect.w -= x_split;
+      m_remaining_rect.size -= m_current_row.total_size;
+
+      for (uintmax_t size : m_current_row.m_elements) {
+        if (size == 0) {
+          m_out_rects.push_back({0, 0, 0, 0});
+          continue;
         }
+        SDL_FRect ele_rect = row_space;
+        ele_rect.h *= (float)size / (float)m_current_row.total_size;
+        m_out_rects.push_back(ele_rect);
 
-        row = {c};
-        row_sizes = {c->size};
+        // If density is changing drastically we have a problem
+        float d = (ele_rect.w * ele_rect.h) / (float)size;
+
+        float p =
+            (m_parent_rect.w * m_parent_rect.h) / (float)m_parent_rect.size;
+        assert(0.8f * p < d and d < 1.2f * p);
+
+        row_space.y += ele_rect.h;
+        row_space.h -= ele_rect.h;
+        m_current_row.total_size -= size;
       }
-
-
-      dq.push(c);
     }
-  }
-}
 
-void Render(SDL_Renderer *renderer, Directory *root, const SDL_Rect &start_rect,
-            int colour_index = 0)
+    m_current_row.Clear();
+  }
+
+private:
+  const Rect m_parent_rect;
+
+
+  Rect m_remaining_rect;
+  Row m_current_row;
+
+  std::vector<SDL_FRect> &m_out_rects;
+};
+
+node_index_t FindMouseClick(const FileTree *tree, const SDL_FRect *rects, int x,
+                            int y)
 {
-  constexpr SDL_Colour red{0xff, 0, 0, 0};
-  constexpr SDL_Colour orange{0xff, 0xd6, 0xa5, 0};
-  constexpr SDL_Colour yellow{0xfd, 0xff, 0xb6, 0};
-  constexpr SDL_Colour green{0x00, 0xab, 0x55, 0};
-  constexpr SDL_Colour blue{0x9b, 0xf6, 0xff, 0};
-  constexpr SDL_Colour blue2{0xa0, 0xc4, 0xff, 0};
-  constexpr SDL_Colour purple{0xbd, 0xb2, 0xff, 0};
-  constexpr SDL_Colour pink{0xff, 0xc6, 0xff, 0};
+  const SDL_FPoint p = {(float)x, (float)y};
 
-  static const SDL_Colour palette[8] = {red,  orange, yellow, green,
-                                        blue, blue2,  purple, pink};
+  if (tree->GetRoot().type != File::DIRECTORY) { return 0; }
 
+  node_index_t i = tree->GetRoot().first_child;
+  node_index_t n = tree->CountChildren(0);
+  if (i >= tree->Size()) { return 0; }
 
-  for (Directory *d : root->children) {
-    Render(renderer, d, d->AABB, colour_index);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-    SDL_RenderDrawRect(renderer, &(d->AABB));
-    colour_index = (colour_index + 1) % 8;
-  }
-  for (const File &f : root->files) {
-    SDL_Colour c = palette[colour_index];
-    SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
-    SDL_RenderFillRect(renderer, &(f.AABB));
+  node_index_t tightest_rect = 0;
+  while (n > 0) {
+    if (SDL_PointInFRect(&p, &(rects[i]))) {
+      tightest_rect = i;
+      if (tree->GetFile(i).type != File::DIRECTORY) { return tightest_rect; }
 
-    colour_index = (colour_index + 1) % 8;
-  }
-}
+      n = tree->CountChildren(i);
+      i = tree->GetFile(i).first_child;
 
-Directory *FindMouseClick(Directory *root, int x, int y)
-{
-  SDL_Point p = {x, y};
-  assert(SDL_PointInRect(&p, &(root->AABB)));
-
-  std::stack<Directory *> dq;
-  dq.push(root);
-  while (!dq.empty()) {
-    Directory *d = dq.top();
-    dq.pop();
-
-    bool descend = false;
-    for (Directory *c : d->children) {
-      if (SDL_PointInRect(&p, &(c->AABB))) {
-        dq.push(c);
-        descend = true;
-        break;
-      }
-    }
-    if (!descend) {
-      for (const File &f : d->files) {
-        if (SDL_PointInRect(&p, &(f.AABB))) {
-          std::cout << d->path / f.name << ' ' << FormatSize{f.size} << '\n';
-          return d;
-        }
-      }
-      std::cout << d->path << ' ' << FormatSize{d->size} << '\n';
-      return d;
+      if (i >= tree->Size()) { return tightest_rect; }
+    } else {
+      ++i;
+      --n;
     }
   }
-  return nullptr;
-}
-
-
-void Draw(fs::path p)
-{
-  SDL_Window *window = SDL_CreateWindow("filetree", 0, 0, 900, 600, 0);
-  SDL_Renderer *renderer =
-      SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
-
-  SDL_Rect screen = {0, 0, 900, 600};
-
-  Directory root;
-  root.path = p;
-  root.AABB = screen;
-  FillDirectoryRecursive(&root);
-  CalcSizes(&root);
-
-  CreateRects(&root);
-
-  bool running = true;
-  Directory *selected = nullptr;
-  while (running) {
-    SDL_Event e;
-    while (SDL_PollEvent(&e)) {
-      if (e.type == SDL_QUIT) { running = false; }
-      if (e.type == SDL_KEYDOWN and e.key.keysym.sym == SDLK_ESCAPE) {
-        running = false;
-      }
-      if (e.type == SDL_MOUSEMOTION) {
-        selected = FindMouseClick(&root, e.motion.x, e.motion.y);
-      }
-    }
-
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-    SDL_RenderClear(renderer);
-
-    Render(renderer, &root, screen);
-
-    if (selected) {
-      SDL_SetRenderDrawColor(renderer, 255, 0, 255, 0);
-      SDL_RenderDrawRect(renderer, &selected->AABB);
-    }
-
-    SDL_RenderPresent(renderer);
-  }
+  return tightest_rect;
 }
