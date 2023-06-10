@@ -1,6 +1,6 @@
 # filemap
 
-File size visualiser using the Squarified Treemap method([pdf](http://www.win.tue.nl/~vanwijk/stm.pdf)).
+File size visualiser using the Squarified Treemap method ([pdf](http://www.win.tue.nl/~vanwijk/stm.pdf)).
 
 ## Building
 
