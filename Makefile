@@ -5,7 +5,7 @@ CXXFLAGS =-std=c++17
 DEBUGARGS = -g3 -Wall -Wextra -Wconversion -Wdouble-promotion -Wno-unused-parameter -Wno-unused-function -Wno-sign-conversion 
 LDFLAGS=-lSDL2main -lSDL2
 
-EXE := main.out
+EXE := filemap
 
 SDL2_INCLUDES := $$(sdl2-config --cflags --libs)
 
