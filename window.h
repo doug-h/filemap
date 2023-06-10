@@ -4,7 +4,7 @@
 #include "SDL.h"
 
 #include "backends/imgui_impl_sdl2.h"
-#include "backends/imgui_impl_sdlrenderer.h"
+#include "backends/imgui_impl_sdlrenderer2.h"
 #include "imgui.h"
 
 constexpr int NUM_COLOURS = 12;
@@ -144,7 +144,7 @@ App::App(const char *name, int width, int height)
 
   // Setup Platform/Renderer backends
   ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
-  ImGui_ImplSDLRenderer_Init(renderer);
+  ImGui_ImplSDLRenderer2_Init(renderer);
 
   SetPalette(GetDefaultPalette());
 }
@@ -185,7 +185,7 @@ void App::Run()
     SDL_SetRenderDrawColor(renderer, r, g, b, a);
     SDL_RenderClear(renderer);
 
-    ImGui_ImplSDLRenderer_NewFrame();
+    ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
@@ -245,7 +245,7 @@ void App::Run()
     ImGuiIO &io = ImGui::GetIO();
     SDL_RenderSetScale(renderer, io.DisplayFramebufferScale.x,
                        io.DisplayFramebufferScale.y);
-    ImGui_ImplSDLRenderer_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
     SDL_RenderPresent(renderer);
   }
 }
