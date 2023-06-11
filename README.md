@@ -6,7 +6,6 @@ File size visualiser using the Squarified Treemap method ([pdf](http://www.win.t
 
 ### Linux
 ```
-mkdir build
 make
 ```
 
