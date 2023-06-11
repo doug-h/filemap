@@ -1,17 +1,14 @@
-#include "filemap.h"
-#include "filetree.h"
-
 #include "SDL.h"
-
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_sdlrenderer2.h"
+#include "filemap.h"
+#include "filetree.h"
 #include "imgui.h"
 
 constexpr int NUM_COLOURS = 12;
 using Palette = SDL_Colour[NUM_COLOURS];
 
-SDL_Colour *GetDefaultPalette()
-{
+SDL_Colour *GetDefaultPalette() {
   static Palette default_palette;
   static bool initialised = false;
 
@@ -37,18 +34,20 @@ SDL_Colour *GetDefaultPalette()
   return default_palette;
 }
 
-
-std::vector<SDL_FRect> MakeRects(const FileTree &tree, SDL_FRect space)
-{
+std::vector<SDL_FRect> MakeRects(const FileTree &tree, SDL_FRect space) {
   std::vector<SDL_FRect> rects = {space};
 
   for (node_index_t rect = 0; rect < tree.Size(); ++rect) {
-    if (tree.GetFile(rect).type != File::DIRECTORY) { continue; }
+    if (tree.GetFile(rect).type != File::DIRECTORY) {
+      continue;
+    }
 
     RowLayoutManager row_man(rects[rect], tree.GetFile(rect).size, rects);
 
     const node_index_t c0 = tree.GetFile(rect).first_child;
-    if (c0 == NULL_INDEX) { continue; }
+    if (c0 == NULL_INDEX) {
+      continue;
+    }
     // if c0 != NULL_INDEX then CountChildren >= 1 is guaranteed
     const node_index_t c1 = c0 + tree.CountChildren(rect) - 1;
     for (node_index_t i = c0; i <= c1; ++i) {
@@ -59,9 +58,8 @@ std::vector<SDL_FRect> MakeRects(const FileTree &tree, SDL_FRect space)
   return rects;
 }
 
-
 class App {
-public:
+ public:
   App(const char *name, int width, int height);
 
   void SetTarget(FileTree *, SDL_FRect *);
@@ -71,21 +69,20 @@ public:
   bool IsRunning() const { return m_alive; }
   void Quit() { m_alive = false; }
 
-private:
+ private:
   void ProcessEvents();
 
   void UpdateMapTexture();
   void HighlightRect(node_index_t);
 
-
-public:
+ public:
   SDL_Window *window;
   SDL_Renderer *renderer;
   SDL_Texture *screen;
 
   SDL_Colour clear_colour;
 
-private:
+ private:
   bool m_alive;
 
   FileTree *m_tree;
@@ -102,7 +99,7 @@ private:
 };
 
 App::App(const char *name, int width, int height)
-    : window(SDL_CreateWindow(name, 0, 0, width, height, 0)),
+    : window(SDL_CreateWindow(name, 10, 30, width, height, 0)),
       renderer(SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC)),
       screen(SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888,
                                SDL_TEXTUREACCESS_TARGET, width, height)),
@@ -110,12 +107,15 @@ App::App(const char *name, int width, int height)
 
       m_alive(true),
 
-      m_tree(nullptr), m_rects(nullptr),
+      m_tree(nullptr),
+      m_rects(nullptr),
 
-      m_zoom(1), m_offset{0, 0}, m_palette(),
+      m_zoom(1),
+      m_offset{0, 0},
+      m_palette(),
 
-      m_selected(0), m_selected_parent_depth(0)
-{
+      m_selected(0),
+      m_selected_parent_depth(0) {
   if (window == nullptr) {
     printf("Unable to create window: %s\n", SDL_GetError());
     assert(0);
@@ -149,21 +149,18 @@ App::App(const char *name, int width, int height)
   SetPalette(GetDefaultPalette());
 }
 
-void App::SetPalette(Palette p)
-{
+void App::SetPalette(Palette p) {
   for (int i = 0; i < NUM_COLOURS; ++i) {
     m_palette[i] = p[i];
   }
 }
 
-void App::SetTarget(FileTree *tree, SDL_FRect *rects)
-{
+void App::SetTarget(FileTree *tree, SDL_FRect *rects) {
   m_tree = tree;
   m_rects = rects;
 }
 
-void App::Run()
-{
+void App::Run() {
   UpdateMapTexture();
 
   while (m_alive) {
@@ -174,7 +171,9 @@ void App::Run()
       ancestor = m_selected;
       int i;
       for (i = 0; i < m_selected_parent_depth; ++i) {
-        if (m_tree->GetFile(ancestor).parent == NULL_INDEX) { break; }
+        if (m_tree->GetFile(ancestor).parent == NULL_INDEX) {
+          break;
+        }
         ancestor = m_tree->GetFile(ancestor).parent;
       }
       m_selected_parent_depth = i;
@@ -189,19 +188,20 @@ void App::Run()
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
-
     // Draw to base 'screen' layer
     int w, h;
     SDL_GetWindowSize(window, &w, &h);
     SDL_SetRenderTarget(renderer, NULL);
-    SDL_Rect d = {(1 - m_zoom) * w / 2 + m_offset.x,
-                  (1 - m_zoom) * h / 2 + m_offset.y, w * m_zoom, h * m_zoom};
+    SDL_Rect d = {(int)((1 - m_zoom) * w / 2 + m_offset.x),
+                  (int)((1 - m_zoom) * h / 2 + m_offset.y), (int)(w * m_zoom),
+                  (int)(h * m_zoom)};
 
     SDL_RenderCopy(renderer, screen, NULL, &d);
 
-
     // Draw on top of 'screen'
-    if (m_selected) { HighlightRect(ancestor); }
+    if (m_selected) {
+      HighlightRect(ancestor);
+    }
 
     // Do all ImGui drawing
     if (m_selected) {
@@ -219,8 +219,9 @@ void App::Run()
         SDL_GetWindowSize(window, &w, &h);
         SDL_GetMouseState(&x, &y);
 
-        const char *s = p.c_str();
-        float ux = ImGui::CalcTextSize(s, NULL, false, (float)(w - x)).x;
+        float ux =
+            ImGui::CalcTextSize(p.string().c_str(), NULL, false, (float)(w - x))
+                .x;
 
         int prefix = 0;
         double size = (double)anc.size;
@@ -234,11 +235,11 @@ void App::Run()
         float px = ImGui::GetStyle().WindowPadding.x;
         ImGui::SetNextWindowSize({ux + 2 * px, 0.0f});
         ImGui::BeginTooltip();
-        ImGui::TextWrapped("%s\n%.2f %cB\n", s, size, unit_prefix);
+        ImGui::TextWrapped("%s\n%.2f %cB\n", p.string().c_str(), size,
+                           unit_prefix);
         ImGui::EndTooltip();
       }
     }
-
 
     // Present new frame
     ImGui::Render();
@@ -250,9 +251,7 @@ void App::Run()
   }
 }
 
-void App::ProcessEvents()
-{
-
+void App::ProcessEvents() {
   // Skip over events that ImGui wants to capture
   ImGuiIO &io = ImGui::GetIO();
   bool key_stolen, mouse_stolen;
@@ -264,70 +263,70 @@ void App::ProcessEvents()
                  io.WantCaptureKeyboard;
     mouse_stolen = (e.type >= SDL_MOUSEMOTION and e.type <= SDL_MOUSEWHEEL) and
                    io.WantCaptureMouse;
-    if (key_stolen or mouse_stolen) { continue; }
+    if (key_stolen or mouse_stolen) {
+      continue;
+    }
 
     // Event not used by ImGui, so we do App related stuff...
     switch (e.type) {
-
-    case SDL_QUIT: {
-      App::Quit();
-    } break; // SDL_QUIT
-
-    case SDL_KEYDOWN: {
-      switch (e.key.keysym.sym) {
-
-      case SDLK_ESCAPE: {
+      case SDL_QUIT: {
         App::Quit();
-      } break; // SDLK_ESCAPE
-      }
+      } break;  // SDL_QUIT
 
-    } break; // SDL_KEYDOWN
+      case SDL_KEYDOWN: {
+        switch (e.key.keysym.sym) {
+          case SDLK_ESCAPE: {
+            App::Quit();
+          } break;  // SDLK_ESCAPE
+        }
 
-    case SDL_MOUSEBUTTONDOWN: {
-    } break; // SDL_MOUSEBUTTONDOWN
+      } break;  // SDL_KEYDOWN
 
-    case SDL_MOUSEMOTION: {
-      if (SDL_BUTTON_LMASK & e.motion.state) {
-        m_offset.x += e.motion.xrel;
-        m_offset.y += e.motion.yrel;
+      case SDL_MOUSEBUTTONDOWN: {
+      } break;  // SDL_MOUSEBUTTONDOWN
 
-      } else {
-        int w, h;
-        SDL_GetWindowSize(window, &w, &h);
-        node_index_t new_selected = FindMouseClick(
-            m_tree, m_rects,
-            (e.motion.x - (1 - m_zoom) * w / 2 - m_offset.x) / m_zoom,
-            (e.motion.y - (1 - m_zoom) * h / 2 - m_offset.y) / m_zoom);
-        if (new_selected != m_selected) { m_selected_parent_depth = 0; }
-        m_selected = new_selected;
-      }
-    } break; // SDL_MOUSEMOTION
+      case SDL_MOUSEMOTION: {
+        if (SDL_BUTTON_LMASK & e.motion.state) {
+          m_offset.x += e.motion.xrel;
+          m_offset.y += e.motion.yrel;
 
-    case SDL_MOUSEWHEEL: {
-      if (SDL_BUTTON_LMASK & SDL_GetMouseState(nullptr, nullptr)) {
-        int w, h;
-        SDL_GetWindowSize(window, &w, &h);
-        float new_zoom = m_zoom * std::pow(0.9, -e.wheel.preciseY);
-        new_zoom = std::clamp(new_zoom, 0.1f - m_zoom, 10.0f - m_zoom);
-        float scale = (new_zoom - m_zoom) / m_zoom;
-        m_offset.x += scale * m_offset.x;
-        m_offset.y += scale * m_offset.y;
+        } else {
+          int w, h;
+          SDL_GetWindowSize(window, &w, &h);
+          node_index_t new_selected = FindMouseClick(
+              m_tree, m_rects,
+              (e.motion.x - (1 - m_zoom) * w / 2 - m_offset.x) / m_zoom,
+              (e.motion.y - (1 - m_zoom) * h / 2 - m_offset.y) / m_zoom);
+          if (new_selected != m_selected) {
+            m_selected_parent_depth = 0;
+          }
+          m_selected = new_selected;
+        }
+      } break;  // SDL_MOUSEMOTION
 
-        m_zoom = new_zoom;
-      } else {
-        m_selected_parent_depth -= e.wheel.y;
-        m_selected_parent_depth = std::max(0, m_selected_parent_depth);
-      }
-    } break; // SDL_MOUSEWHEEL
+      case SDL_MOUSEWHEEL: {
+        if (SDL_BUTTON_LMASK & SDL_GetMouseState(nullptr, nullptr)) {
+          int w, h;
+          SDL_GetWindowSize(window, &w, &h);
+          float new_zoom = m_zoom * std::pow(0.9, -e.wheel.preciseY);
+          new_zoom = std::clamp(new_zoom, 0.1f - m_zoom, 10.0f - m_zoom);
+          float scale = (new_zoom - m_zoom) / m_zoom;
+          m_offset.x += scale * m_offset.x;
+          m_offset.y += scale * m_offset.y;
+
+          m_zoom = new_zoom;
+        } else {
+          m_selected_parent_depth -= e.wheel.y;
+          m_selected_parent_depth = std::max(0, m_selected_parent_depth);
+        }
+      } break;  // SDL_MOUSEWHEEL
     }
 
     continue;
   }
 }
 
-
-void App::UpdateMapTexture()
-{
+void App::UpdateMapTexture() {
   SDL_SetRenderTarget(renderer, screen);
 
   for (node_index_t i = 0; i < m_tree->Size(); ++i) {
@@ -338,8 +337,7 @@ void App::UpdateMapTexture()
   SDL_SetRenderTarget(renderer, NULL);
 }
 
-void App::HighlightRect(node_index_t r)
-{
+void App::HighlightRect(node_index_t r) {
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
   SDL_FRect outline = m_rects[r];
 
