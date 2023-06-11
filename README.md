@@ -2,6 +2,8 @@
 
 File size visualiser using the Squarified Treemap method ([pdf](http://www.win.tue.nl/~vanwijk/stm.pdf)).
 
+![Screenshot of app](capture2.png)
+
 ## Building
 Uses SDL (make sure sdl2-config is on path).
 
