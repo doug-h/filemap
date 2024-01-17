@@ -8,7 +8,7 @@
 
 namespace fs = std::filesystem;
 
-int main(int argv, char** args) {
+int main(int argv, char **args) {
   if (argv != 2) {
     puts("Usage filemap [directory]");
     return 0;

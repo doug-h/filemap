@@ -37,4 +37,4 @@ $(IMGUI_DIR)/backends/%.o:$(IMGUI_DIR)/backends/%.cpp
 
 
 app.o: main.cpp debug.h filemap.h window.h filetree.h external/imgui/imgui.h
-	$(CXX) -c main.cpp -o app.o $(CXXFLAGS) $(SDL2_INCLUDES) -Iexternal/imgui/
+	$(CXX) -c main.cpp -o app.o $(CXXFLAGS) $(SDL2_INCLUDES) -Iexternal/imgui/ $(DEBUGARGS)
