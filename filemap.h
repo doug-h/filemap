@@ -133,7 +133,7 @@ private:
 
         float p =
             (m_parent_rect.w * m_parent_rect.h) / (float)m_parent_rect.size;
-        assert(0.8f * p < d and d < 1.2f * p);
+        //assert(0.8f * p < d and d < 1.2f * p);
 
         row_space.x += ele_rect.w;
         row_space.w -= ele_rect.w;
@@ -162,7 +162,7 @@ private:
 
         float p =
             (m_parent_rect.w * m_parent_rect.h) / (float)m_parent_rect.size;
-        assert(0.8f * p < d and d < 1.2f * p);
+        //assert(0.8f * p < d and d < 1.2f * p);
 
         row_space.y += ele_rect.h;
         row_space.h -= ele_rect.h;

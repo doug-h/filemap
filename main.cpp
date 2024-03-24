@@ -6,11 +6,11 @@
 #include "filetree.h"
 #include "window.h"
 
-namespace fs = std::filesystem;
-
 int main(int argv, char **args) {
+  namespace fs = std::filesystem;
+
   if (argv != 2) {
-    puts("Usage filemap [directory]");
+    std::cout << "Usage: filemap [directory]" << '\n';
     return 0;
   }
   fs::path p(args[1]);
@@ -22,7 +22,7 @@ int main(int argv, char **args) {
   std::vector<SDL_FRect> rects = MakeRects(master_tree, {0, 0, 900, 600});
 
   std::cout << master_tree.Size()
-            << " files, total size: " << FormatSize{master_tree.GetRoot().size}
+            << " files, total size: " << FormatSize(master_tree.GetRoot().size)
             << '\n';
 
   {

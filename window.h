@@ -285,14 +285,13 @@ void App::ProcessEvents() {
       }
       const FileNode &fn = m_tree->GetFile(ancestor);
       fs::path p;
-      if (!fn.parent) {
-        assert(fn.type == File::DIRECTORY); // Is this always true?
+      if (!fn.parent or fn.type == File::DIRECTORY) {
         p = fn.path;
       } else {
-        p = m_tree->GetFile(fn.parent).path;
+        p = m_tree->GetFile(fn.parent).path / fn.path;
       }
 
-      std::cout << "[open command] " + '"' + std::string(p) + '"' + '\n';
+      std::cout << '"' << std::string(p) << '"' << '\n';
     } break; // SDL_MOUSEBUTTONUP
 
     case SDL_MOUSEMOTION: {

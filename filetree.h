@@ -68,9 +68,6 @@ public:
   FileTree(const fs::path &root);
   ~FileTree() {}
 
-  // Expand the next directory
-  void GrowNext();
-
   // Expand the tree fully
   void Grow();
 
@@ -81,10 +78,13 @@ public:
   int CountChildren(node_index_t directory) const;
   const FileNode &GetRoot() const { return m_nodes[0]; }
   const FileNode &GetFile(node_index_t i) const { return m_nodes[i]; }
-  node_index_t Size() const { return (node_index_t)m_nodes.size(); }
+  std::size_t Size() const { return (node_index_t)m_nodes.size(); }
   bool IsFullyGrown() const { return m_grow_index < m_nodes.size(); }
 
 private:
+  // Expand the next directory
+  void GrowNext();
+
   // Move m_grow_index to the next directory
   void SkipToNextDir();
 
@@ -123,16 +123,28 @@ File::File(const fs::directory_entry &_f)
     path = _f.path().filename();
     type = OTHER;
     size = 0;
-    std::cout << "Warning, unrecognised file: " << path << '\n';
+    std::clog << "Warning, unrecognised file: " << path << '\n';
   } break;
   }
 }
 
 FileTree::FileTree(const fs::path &_path) : m_grow_index(0)
 {
-  // Root is its own parent (maybe set to sentinel instead)
-  m_nodes.emplace_back(fs::directory_entry(_path), 0);
-  m_nodes.back().parent = NULL_INDEX;
+  m_nodes.emplace_back(fs::directory_entry(_path), NULL_INDEX);
+}
+
+bool FileOrder(const FileNode &a, const FileNode& b){
+  if(a.type == File::DIRECTORY){
+    if(b.type == File::DIRECTORY){
+      return a.path.filename() > b.path.filename();
+    }
+    return true;
+  }
+  if(b.type == File::DIRECTORY){
+    return false;
+  }
+
+   return a.size > b.size; 
 }
 
 void FileTree::GrowNext()
@@ -144,25 +156,28 @@ void FileTree::GrowNext()
   FileNode &f = m_nodes[m_grow_index];
   f.first_child = NULL_INDEX;
 
-  const node_index_t child_slot = Size();
+  const node_index_t child_slot = m_nodes.size();
   for (const fs::directory_entry &c : fs::directory_iterator(f.path)) {
     m_nodes.emplace_back(c, m_grow_index);
 
     // Only need to do this once
     m_nodes[m_grow_index].first_child = child_slot;
   }
-  std::sort(
-      m_nodes.begin() + child_slot, m_nodes.end(),
-      [](const FileNode &a, const FileNode &b) { return a.size > b.size; });
+  std::sort( m_nodes.begin() + child_slot, m_nodes.end(), FileOrder);
 
   ++m_grow_index;
 }
 
 void FileTree::Grow()
 {
+  std::cout << '\n';
   while (m_grow_index < m_nodes.size()) {
     GrowNext();
+    if(Size() % 64 == 0){
+      std::cout << "\x1B[2K\r" << Size() << " files" << std::flush;
+    }
   }
+  std::cout << "\x1B[2K\r\n";
 }
 
 void FileTree::SkipToNextDir()
@@ -176,9 +191,9 @@ void FileTree::SkipToNextDir()
 
 void FileTree::CalcSizes()
 {
-  if (Size() == 0) { return; }
+  if (m_nodes.size() == 0) { return; }
 
-  for (node_index_t i = Size() - 1; i > 0; --i) {
+  for (node_index_t i = m_nodes.size() - 1; i > 0; --i) {
     const FileNode &child = m_nodes[i];
     m_nodes[child.parent].size += child.size;
   }

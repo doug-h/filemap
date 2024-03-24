@@ -3,6 +3,7 @@ CCX     = g++
 CXXFLAGS =-std=c++17
 
 DEBUGARGS = -g3 -Wall -Wextra -Wconversion -Wdouble-promotion -Wno-unused-parameter -Wno-unused-function -Wno-sign-conversion 
+RELEASEARGS = -O3
 LDFLAGS=-lSDL2main -lSDL2
 
 EXE := filemap
@@ -37,4 +38,4 @@ $(IMGUI_DIR)/backends/%.o:$(IMGUI_DIR)/backends/%.cpp
 
 
 app.o: main.cpp debug.h filemap.h window.h filetree.h external/imgui/imgui.h
-	$(CXX) -c main.cpp -o app.o $(CXXFLAGS) $(SDL2_INCLUDES) -Iexternal/imgui/ $(DEBUGARGS)
+	$(CXX) -c main.cpp -o app.o $(CXXFLAGS) $(SDL2_INCLUDES) -Iexternal/imgui/ $(RELEASEARGS)
