@@ -6,7 +6,7 @@ File size visualiser using the Squarified Treemap method ([pdf](http://www.win.t
 
 
 ## Use
-Run ./filemap [name of folder] or filemap.exe [name of folder]
+Run ./filemap [name of folder]
 
 Pan the map by clicking and dragging the mouse.
 
