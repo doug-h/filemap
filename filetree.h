@@ -13,7 +13,7 @@ constexpr node_index_t NULL_INDEX = 0;
 namespace fs = std::filesystem;
 
 // TODO - get better values/make platform dependent
-#define DIR_SIZE 4096
+#define DIR_SIZE     4096
 #define SYMLINK_SIZE 64
 
 // ============ File ================
@@ -21,7 +21,6 @@ namespace fs = std::filesystem;
 struct File {
   File(const fs::directory_entry &);
   ~File() = default;
-
 
   fs::path path;
   uintmax_t size;
@@ -33,7 +32,6 @@ struct File {
   } type;
 };
 
-
 // ============= FileNode =====================
 // We store the tree as a flat array, nodes all store the index of their parent.
 // Children are stored contiguously in the array, and parents store the index to
@@ -44,7 +42,6 @@ struct FileNode : File {
   node_index_t parent;
   node_index_t first_child;
 };
-
 
 /* ============== FileTree =====================
  * A (flat)tree of files/directories.
@@ -88,15 +85,13 @@ private:
   // Move m_grow_index to the next directory
   void SkipToNextDir();
 
-
 private:
   std::vector<FileNode> m_nodes;
   // Index of the next node that needs to be expanded
   node_index_t m_grow_index;
 };
 
-File::File(const fs::directory_entry &_f)
-{
+File::File(const fs::directory_entry &_f) {
   // fs::status on a symlink returns the linked type e.g. 'directory', whereas
   // fs::symlink_status returns a specific type 'symlink'
   switch (_f.symlink_status().type()) {
@@ -128,27 +123,23 @@ File::File(const fs::directory_entry &_f)
   }
 }
 
-FileTree::FileTree(const fs::path &_path) : m_grow_index(0)
-{
+FileTree::FileTree(const fs::path &_path) : m_grow_index(0) {
   m_nodes.emplace_back(fs::directory_entry(_path), NULL_INDEX);
 }
 
-bool FileOrder(const FileNode &a, const FileNode& b){
-  if(a.type == File::DIRECTORY){
-    if(b.type == File::DIRECTORY){
+bool FileOrder(const FileNode &a, const FileNode &b) {
+  if (a.type == File::DIRECTORY) {
+    if (b.type == File::DIRECTORY) {
       return a.path.filename() > b.path.filename();
     }
     return true;
   }
-  if(b.type == File::DIRECTORY){
-    return false;
-  }
+  if (b.type == File::DIRECTORY) { return false; }
 
-   return a.size > b.size; 
+  return a.size > b.size;
 }
 
-void FileTree::GrowNext()
-{
+void FileTree::GrowNext() {
   SkipToNextDir();
 
   if (m_grow_index >= m_nodes.size()) { return; }
@@ -163,34 +154,30 @@ void FileTree::GrowNext()
     // Only need to do this once
     m_nodes[m_grow_index].first_child = child_slot;
   }
-  std::sort( m_nodes.begin() + child_slot, m_nodes.end(), FileOrder);
+  std::sort(m_nodes.begin() + child_slot, m_nodes.end(), FileOrder);
 
   ++m_grow_index;
 }
 
-void FileTree::Grow()
-{
+void FileTree::Grow() {
   std::cout << '\n';
   while (m_grow_index < m_nodes.size()) {
     GrowNext();
-    if(Size() % 64 == 0){
+    if (Size() % 64 == 0) {
       std::cout << "\x1B[2K\r" << Size() << " files" << std::flush;
     }
   }
   std::cout << "\x1B[2K\r\n";
 }
 
-void FileTree::SkipToNextDir()
-{
+void FileTree::SkipToNextDir() {
   while (m_grow_index < m_nodes.size() and
          m_nodes[m_grow_index].type != File::DIRECTORY) {
     ++m_grow_index;
   }
 }
 
-
-void FileTree::CalcSizes()
-{
+void FileTree::CalcSizes() {
   if (m_nodes.size() == 0) { return; }
 
   for (node_index_t i = m_nodes.size() - 1; i > 0; --i) {
@@ -199,10 +186,8 @@ void FileTree::CalcSizes()
   }
 }
 
-int FileTree::CountChildren(node_index_t directory) const
-{
-  assert(m_nodes[directory].type == File::DIRECTORY);
-
+int FileTree::CountChildren(node_index_t directory) const {
+  if (m_nodes[directory].type != File::DIRECTORY) { return 0; }
   if (m_nodes[directory].first_child == NULL_INDEX) { return 0; }
 
   node_index_t start, end;
